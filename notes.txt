@@ -1,0 +1,2 @@
+- vše jako POLITICS .... 16.87%
+- logistic Regression s 1000 slov...~ 41.73%
