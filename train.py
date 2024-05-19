@@ -1,5 +1,5 @@
 
-
+import time
 import torch
 import argparse
 import torch.nn
@@ -35,15 +35,15 @@ from torchtext.vocab import build_vocab_from_iterator
 from torchtext.data.utils import get_tokenizer
 
 from NN_model import EmbModel
-
+import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_path", default="data/train.jsonl", type=str, help="data path")
 parser.add_argument("--model_path", default="models/model.model", type=str, help="Model path")
-parser.add_argument("--embedder_path", default="embedders/glove.6B.50d.txt", type=str, help="embedders/glove.6B.DIMd.txt where: DIM in [50 , 100, 200, 300], and DIM == --emb_dimension")
-parser.add_argument("--emb_dimension", default= 50 , type=int, help="dimensions 50 , 100, 200, 300")
+parser.add_argument("--embedder_path", default="embedders/glove.6B.100d.txt", type=str, help="embedders/glove.6B.DIMd.txt where: DIM in [50 , 100, 200, 300], and DIM == --emb_dimension")
+parser.add_argument("--emb_dimension", default= 100 , type=int, help="dimensions 50 , 100, 200, 300")
 parser.add_argument("--use_columns", default= ['headline','short_description'] , type=list, help="Model path")
-parser.add_argument("--max_tokens", default= [44, 50] , type=list, help="Model path")
+parser.add_argument("--max_tokens", default= [44, 60] , type=list, help="Model path")
 
 class BaseDataset:
     classes = ['POLITICS', 'WELLNESS', 'ENTERTAINMENT', 'TRAVEL', 'STYLE & BEAUTY',
@@ -223,11 +223,12 @@ if __name__ == '__main__':
     vocab_size  = len(train_dataset.vocab)
     emb_dim = train_dataset.emb_dim
     tokens_insample = train_dataset.tokens
-    hidden_layers = (32,32,)
+    hidden_layers = (100,64,64)
     num_layers = 1
     RNN_type = 'Simple RNN' #possible choices -> ['Simple RNN', 'LSTM', 'GRU']
     bidirectional = False
     lr = 1e-3
+    epochs = 35
     
     model = EmbModel(vocab_size = vocab_size,
                       emb_dim = emb_dim, 
@@ -235,27 +236,25 @@ if __name__ == '__main__':
                       hidden_layers = hidden_layers,
                       pretrained_emb = train_dataset.embeddings,
                       learn_emb = False,
-                      dropout_rate = 0.5,
+                      dropout_rate = 0.35,
+                      device = train_dataset.device,
                       output_dim=len(BaseDataset.classes)).to(train_dataset.device)
     
- 
 
     criterion = torch.nn.BCELoss()  # does not apply sigmoid
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)  
 
-    print
-    E = 500
-    label, text = next(iter(dataloader_training))
-    for itr in range(E):
-        model.train()
-        optimizer.zero_grad()
-        logits = model(text)
-        loss = criterion(logits, label)
-        if itr % 100 == 0 or itr == E-1:
-          print(f"epoch: {itr} -> Loss: {loss}")
-        loss.backward()
-        optimizer.step()
-
+    start = time.time()
+    loss_train, accuracy_train, loss_val, accuracy_val = EmbModel.train_and_val(model,
+                                                                        optimizer,
+                                                                        dataloader_training, 
+                                                                        dataloader_validation, 
+                                                                        epochs,
+                                                                        criterion)
+    end = time.time()
+    print(f"Training time in second: {(end - start)}")
+    
+    EmbModel.plot_learning_acc_and_loss(loss_train, accuracy_train, loss_val, accuracy_val,epochs)
 
     
     
