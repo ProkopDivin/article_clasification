@@ -6,6 +6,7 @@ import argparse
 import torch.nn
 import torch.nn.functional as F
 
+
 #import pickle
 #import sklearn
 #from sklearn.pipeline import Pipeline
@@ -45,12 +46,16 @@ import numpy as np
 from torchtext.vocab import build_vocab_from_iterator
 from torchtext.data.utils import get_tokenizer
 
+from NN_model import EmbModel
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_path", default="data/train.jsonl", type=str, help="data path")
 parser.add_argument("--model_path", default="models/model.model", type=str, help="Model path")
-parser.add_argument("--embedder_path", default="embedders/glove.6B.50d.txt", type=str, help="Model path")
-parser.add_argument("--emb_dimension", default= 50 , type=int, help="Model path")
+parser.add_argument("--embedder_path", default="embedders/glove.6B.50d.txt", type=str, help="embedders/glove.6B.DIMd.txt where: DIM in [50 , 100, 200, 300], and DIM == --emb_dimension")
+parser.add_argument("--emb_dimension", default= 50 , type=int, help="dimensions 50 , 100, 200, 300")
+parser.add_argument("--use_columns", default= ['headline','short_description'] , type=list, help="Model path")
+parser.add_argument("--max_tokens", default= [44, 50] , type=list, help="Model path")
 
 class BaseDataset:
     classes = ['POLITICS', 'WELLNESS', 'ENTERTAINMENT', 'TRAVEL', 'STYLE & BEAUTY',
@@ -99,10 +104,12 @@ class TorchDataset(BaseDataset,Dataset):
     
     def __init__(self, file_path ):
         super().__init__()
-        self.data = self._load_data(file_path)
         
+        self.data = self._load_data(file_path)
+        one_hot_labels = torch.nn.functional.one_hot(torch.arange(len(BaseDataset.classes)))
+
         if 'category' in self.data:
-            self.y = [BaseDataset.classes.index(x) for x in self.data['category']]
+            self.y = [one_hot_labels[BaseDataset.classes.index(x)] for x in self.data['category']]
         else:
             self.y = None
         
@@ -111,7 +118,7 @@ class TorchDataset(BaseDataset,Dataset):
         # vocabulary for embeddings
         self.vocab = None
         self.embeddings = None
-        self.x_length = 0
+        self.emb_dim = 0
         self.tokenizer = get_tokenizer("basic_english")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     def __len__(self):
@@ -161,10 +168,12 @@ class TorchDataset(BaseDataset,Dataset):
         max_tokens -= len(indexes)
         return F.pad(indexes, (max_tokens, 0))
 
-    def prepare_embeddings(self, emb_path, emb_dim, columns=('headline','short_description'), max_words=(44, 50)):
-
-        vocab_data = [self.data[name] for name in columns]
-        self._build_vocab(pd.concat(vocab_data, axis=0).reset_index(drop=True))
+    def prepare_embeddings(self, emb_path, emb_dim, columns, max_words, vocab = None):
+        if vocab is None:
+            vocab_data = [self.data[name] for name in columns]
+            self._build_vocab(pd.concat(vocab_data, axis=0).reset_index(drop=True))
+        else:
+            self.vocab = vocab
         trained_emb = self._load_embeddings(emb_path)
         self._build_emb_matrix(trained_emb, emb_dim)
         # want frst token of feature begin on the same index if using multiple text features in dataset 
@@ -175,7 +184,7 @@ class TorchDataset(BaseDataset,Dataset):
                indexed_data[idx] = self._text_to_indexes(text, self.vocab, self.tokenizer, max_tokens) 
            indexed_columns.append(indexed_data)
         self.x = torch.cat(indexed_columns, dim=1)
-        self.x_length = sum(max_words)
+        self.emb_dim = sum(max_words) * emb_dim
 
 
 def test_model(model, train_x, train_y, name, grid = {}):
@@ -206,12 +215,48 @@ def train_tf_idf(args):
 
 if __name__ == '__main__':
     args = parser.parse_args([] if "__file__" not in globals() else None)
-    data = TorchDataset(args.data_path)
-    data.prepare_embeddings( args.embedder_path, args.emb_dimension, columns=('headline','short_description'), max_words=(44, 50))
-    print(data.x[0])
-    print(data.x[1])
-    print(data.x[2])
-    pass
+    train_dataset = TorchDataset(args.data_path)
+    train_dataset.prepare_embeddings( args.embedder_path, args.emb_dimension, columns=args.use_columns, max_words=args.max_tokens)
+    val_dataset = TorchDataset(args.data_path)
+    val_dataset = TorchDataset("data/dev.jsonl")
+    val_dataset.prepare_embeddings( args.embedder_path, args.emb_dimension, columns=args.use_columns, max_words=args.max_tokens, vocab = train_dataset.vocab)
+
+
+    batch_size = 256
+    dataloader_training = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    dataloader_validation = DataLoader(val_dataset, batch_size=batch_size)
+
+
+    vocab_size  = len(train_dataset.vocab)
+    emb_dim = train_dataset.emb_dim
+    hidden_size = 32
+    num_layers = 1
+    RNN_type = 'Simple RNN' #possible choices -> ['Simple RNN', 'LSTM', 'GRU']
+    bidirectional = False
+    lr = 1e-3
+    
+    model = EmbModel(vocab_size=vocab_size, emb_dim=emb_dim, hidden_size=hidden_size,
+                      output_dim=len(BaseDataset.classes)).to(train_dataset.device)
+    
+ 
+
+    criterion = torch.nn.BCELoss()  # does not apply sigmoid
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)  
+
+    print
+    E = 500
+    label, text = next(iter(dataloader_training))
+    for itr in range(E):
+        model.train()
+        optimizer.zero_grad()
+        logits = model(text)
+        loss = criterion(logits, label)
+        if itr % 100 == 0 or itr == E-1:
+          print(f"epoch: {itr} -> Loss: {loss}")
+        loss.backward()
+        optimizer.step()
+
+
     
     
 
