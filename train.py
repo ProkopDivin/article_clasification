@@ -1,31 +1,19 @@
 
 
-#import gensim 
 import torch
 import argparse
 import torch.nn
 import torch.nn.functional as F
 
-
-#import pickle
-#import sklearn
-#from sklearn.pipeline import Pipeline
-#from sklearn.preprocessing import StandardScaler
 from sklearn.feature_extraction.text import TfidfVectorizer
-#from sklearn.feature_extraction.text import CountVectorizer
+
 
 from sklearn.model_selection import GridSearchCV
-#from sklearn.preprocessing import OrdinalEncoder
 from sklearn.metrics import make_scorer
 from sklearn.metrics import accuracy_score
 
 from torchtext.data.utils import get_tokenizer
 
-
-#from sklearn.neighbors import KNeighborsClassifier
-#from sklearn.ensemble import RandomForestClassifier
-#from sklearn.neural_network import MLPClassifier
-#from  sklearn.svm import SVC
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
 
@@ -113,14 +101,18 @@ class TorchDataset(BaseDataset,Dataset):
         else:
             self.y = None
         
+        self.tokenizer = get_tokenizer("basic_english")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # prepare embeddings must be called 
         # have to call Prepare data
         self.x = None
         # vocabulary for embeddings
         self.vocab = None
         self.embeddings = None
         self.emb_dim = 0
-        self.tokenizer = get_tokenizer("basic_english")
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.tokens = 0 # tokens in one sample 
+        
     def __len__(self):
         return len(self.x)
 
@@ -159,7 +151,7 @@ class TorchDataset(BaseDataset,Dataset):
                 embedding_matrix[idx] = trained_emb[word]
             else:
                 embedding_matrix[idx] = mean_embedding
-        self.embeddings = embedding_matrix
+        self.embeddings = torch.from_numpy(embedding_matrix).float()
     
     def _text_to_indexes(self, text, vocab, tokenizer, max_tokens):
         tokens = tokenizer(text)
@@ -184,7 +176,8 @@ class TorchDataset(BaseDataset,Dataset):
                indexed_data[idx] = self._text_to_indexes(text, self.vocab, self.tokenizer, max_tokens) 
            indexed_columns.append(indexed_data)
         self.x = torch.cat(indexed_columns, dim=1)
-        self.emb_dim = sum(max_words) * emb_dim
+        self.emb_dim =  emb_dim
+        self.tokens = sum(max_words)
 
 
 def test_model(model, train_x, train_y, name, grid = {}):
@@ -222,20 +215,27 @@ if __name__ == '__main__':
     val_dataset.prepare_embeddings( args.embedder_path, args.emb_dimension, columns=args.use_columns, max_words=args.max_tokens, vocab = train_dataset.vocab)
 
 
-    batch_size = 256
+    batch_size = 1024
     dataloader_training = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     dataloader_validation = DataLoader(val_dataset, batch_size=batch_size)
 
 
     vocab_size  = len(train_dataset.vocab)
     emb_dim = train_dataset.emb_dim
-    hidden_size = 32
+    tokens_insample = train_dataset.tokens
+    hidden_layers = (32,32,)
     num_layers = 1
     RNN_type = 'Simple RNN' #possible choices -> ['Simple RNN', 'LSTM', 'GRU']
     bidirectional = False
     lr = 1e-3
     
-    model = EmbModel(vocab_size=vocab_size, emb_dim=emb_dim, hidden_size=hidden_size,
+    model = EmbModel(vocab_size = vocab_size,
+                      emb_dim = emb_dim, 
+                      tokens_insample = tokens_insample,
+                      hidden_layers = hidden_layers,
+                      pretrained_emb = train_dataset.embeddings,
+                      learn_emb = False,
+                      dropout_rate = 0.5,
                       output_dim=len(BaseDataset.classes)).to(train_dataset.device)
     
  
