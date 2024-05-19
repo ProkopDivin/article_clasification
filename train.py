@@ -3,8 +3,8 @@
 #import gensim 
 import torch
 import argparse
-from torchtext.vocab import GloVe
 import torch.nn
+import torch.nn.functional as F
 
 #import pickle
 #import sklearn
@@ -37,28 +37,68 @@ import json
 import matplotlib.pyplot as plt
 #import copy
 from model import Model
+from torch.utils.data import DataLoader, Dataset
 
+import torch
+import torch.nn as nn
+import numpy as np
+from torchtext.vocab import build_vocab_from_iterator
+from torchtext.data.utils import get_tokenizer
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_path", default="data/train.jsonl", type=str, help="data path")
 parser.add_argument("--model_path", default="models/model.model", type=str, help="Model path")
 parser.add_argument("--embedder_path", default="embedders/glove.6B.50d.txt", type=str, help="Model path")
+parser.add_argument("--emb_dimension", default= 50 , type=int, help="Model path")
 
-
-
-class Dataset:
-
+class BaseDataset:
     classes = ['POLITICS', 'WELLNESS', 'ENTERTAINMENT', 'TRAVEL', 'STYLE & BEAUTY',
-       'PARENTING', 'FOOD & DRINK', 'QUEER VOICES', 'HEALTHY LIVING',
-       'BUSINESS', 'COMEDY', 'BLACK VOICES', 'SPORTS', 'PARENTS',
-       'HOME & LIVING', 'WEDDINGS', 'IMPACT', 'WOMEN', 'CRIME', 'WORLD NEWS',
-       'THE WORLDPOST', 'DIVORCE', 'MEDIA', 'RELIGION', 'WORLDPOST', 'TASTE',
-       'WEIRD NEWS', 'GREEN', 'TECH', 'STYLE', 'SCIENCE', 'MONEY', 'FIFTY',
-       'U.S. NEWS', 'ENVIRONMENT', 'GOOD NEWS', 'ARTS & CULTURE', 'ARTS',
-       'CULTURE & ARTS', 'EDUCATION', 'LATINO VOICES', 'COLLEGE']
+           'PARENTING', 'FOOD & DRINK', 'QUEER VOICES', 'HEALTHY LIVING',
+           'BUSINESS', 'COMEDY', 'BLACK VOICES', 'SPORTS', 'PARENTS',
+           'HOME & LIVING', 'WEDDINGS', 'IMPACT', 'WOMEN', 'CRIME', 'WORLD NEWS',
+           'THE WORLDPOST', 'DIVORCE', 'MEDIA', 'RELIGION', 'WORLDPOST', 'TASTE',
+           'WEIRD NEWS', 'GREEN', 'TECH', 'STYLE', 'SCIENCE', 'MONEY', 'FIFTY',
+           'U.S. NEWS', 'ENVIRONMENT', 'GOOD NEWS', 'ARTS & CULTURE', 'ARTS',
+           'CULTURE & ARTS', 'EDUCATION', 'LATINO VOICES', 'COLLEGE']
+    
+    def _load_data(self, file_path):
+        data = []
+        with open(file_path, 'r', encoding='utf-8') as file:
+            for line in file:
+                data.append(json.loads(line))
+        data = pd.DataFrame(data)
+        return data
+    
+class TfIdfDataset(BaseDataset):
+    
     
     def __init__(self, file_path ):
+        self.data = self._load_data(file_path)
+         
+        if 'category' in self.data:
+            self.y = [Dataset.classes.index(x) for x in self.data['category']]
+        else:
+            self.y = None
+        
+        # have to call Prepare data
+        self.x = None
+    
+    def get_data_for_vectorizer(self):
+        x =  self.data['headline'] + ' ' + self.data['short_description']
+        return x
+
+    def prepare_data(self, vectorizer):
+        data = self.get_data_for_vectorizer()
+        x = vectorizer.transform(data).toarray()
+        self.x = x
+    
+
+class TorchDataset(BaseDataset,Dataset):
+
+    
+    def __init__(self, file_path ):
+        super().__init__()
         self.data = self._load_data(file_path)
 
         
@@ -70,64 +110,64 @@ class Dataset:
         
         # have to call Prepare data
         self.x = None
-       
-
-    def _load_data(self, file_path):
-        data = []
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                data.append(json.loads(line))
-        data = pd.DataFrame(data)
-        #nltk.download('punkt')
-        #data['headline'] = data['headline'].apply(lambda x: nltk.word_tokenize(x))
-        #data['short_description'] = data['short_description'].apply(lambda x: nltk.word_tokenize(x))     
-        return data
+        # vocabulary for embeddings
+        self.vocab = None
+        self.embeddings = None
+        self.x_length = 0
     
-    def get_data_for_vectorizer(self):
-        x =  self.data['headline'] + ' ' + self.data['short_description']
-        return x
-
-    def prepare_data(self, vectorizer):
-        data = self.get_data_for_vectorizer()
-        x = vectorizer.transform(data).toarray()
-        self.x = x
     
-        
-    def _tokenize(self, column, max_words):
-        tokenizer = get_tokenizer('basic_english')
-        tokens = self.data[column].apply(lambda x: tokenizer(x)[:max_words])
-        return tokens
-        
-    def _column_to_embeddings(self, model, tokens, max_tokens):
-        embedding_dim = model.vector_size
-        
-        embeddings = np.zeros((max_tokens,max_tokens, embedding_dim))
-       
-        for i, sample in enumerate(tokens):
-            print(model.get_vecs_by_tokens(sample))
-            for i_token, token in enumerate(sample):
+    # Function to load GloVe embeddings
+    def _load_embeddings(self, file_path):
+        embeddings_dict = {}
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                values = line.split()
+                word = values[0]
+                vector = np.asarray(values[1:], dtype='float32')
+                embeddings_dict[word] = vector
+        return embeddings_dict
 
-                if token in model.vocab:
-                    embeddings[i,i_token,:] = model[token]
-                else:
-                    embeddings[i,i_token,:] = np.zeros(embedding_dim)
-                    print(f"for token: {token}, embeddings was not found")
-        return embeddings
+    def _create_tokens(self, data):
+        tokenizer = get_tokenizer("basic_english")
+        for text in data:
+            yield tokenizer(text.lower())
+    
+    def _build_vocab(self, text):
+        
+        vocab = build_vocab_from_iterator(self._create_tokens(text), specials=["<oov>", "<sos>"])
+        vocab.set_default_index(vocab["<oov>"])
+        self.vocab = vocab
+    
+    def _build_emb_matrix(self, trained_emb, emb_dim):
+        embedding_matrix = np.random.normal(scale=0.6, size=(len(self.vocab), emb_dim))
+        mean_embedding = np.mean(np.array(list(trained_emb.values())), axis=0)
+        for word, idx in self.vocab.get_stoi().items():
+            if word in trained_emb:
+                embedding_matrix[idx] = trained_emb[word]
+            else:
+                embedding_matrix[idx] = mean_embedding
+        self.embeddings = embedding_matrix
+    
+    def _text_to_indexes(self, text, vocab, tokenizer, max_tokens):
+        tokens = tokenizer(text)
+        indexes = [vocab[token] for token in tokens]
+        indexes = torch.tensor(indexes)
+        max_tokens -= len(indexes)
+        return F.pad(indexes, (max_tokens, 0))
 
+    def prepare_embeddings(self, emb_path, emb_dim, columns=('headline','short_description'), max_words=(44, 50)):
 
-    def prepare_embeddings(self,columns, max_words, embedder_path):
-        model = GloVe()
-        #if os.path.exists(embedder_path):
-        #    model  = gensim.models.KeyedVectors.load_word2vec_format(embedder_path, binary=True)
-        #else:
-        #    model  = gensim.downloader.load(DEFAULT_EMBEDDER)
-        #
-        input_data = []
-        for column, max_words in zip(columns, max_words):
-            tokens = self._tokenize(self, column, max_words)
-            embeddings = self._column_to_embeddings(model, tokens)
-            input_data.append(embeddings)
-        self.x = torch.cat(input_data, dim=1)
+        vocab_data = [self.data[name] for name in columns]
+        self._build_vocab(pd.concat(vocab_data, axis=0).reset_index(drop=True))
+        trained_emb = self._load_embeddings(emb_path)
+        self._build_emb_matrix(trained_emb, emb_dim)
+        indexed_columns = []
+        for name,max_tokens in zip(columns,max_words):
+           tokenizer = get_tokenizer('basic_english')
+           indexed_data = torch.tensor([self._text_to_indexes(text, self.vocab, tokenizer, max_tokens) for text in self.data[name]])  
+           indexed_columns.append(indexed_data)
+        self.x = torch.cat(indexed_columns, dim=1)
+        self.x_length = sum(max_words)
 
 
 def test_model(model, train_x, train_y, name, grid = {}):
@@ -159,7 +199,7 @@ def train_tf_idf(args):
 if __name__ == '__main__':
     args = parser.parse_args([] if "__file__" not in globals() else None)
     data = Dataset(args.data_path)
-    data.prepare_embeddings(('headline','short_description'), (44, 50), args.embedder_path)
+    data.prepare_embeddings( args.embedder_path, args.emb_dimension, columns=('headline','short_description'), max_words=(44, 50))
     print(data.x[0])
     print(data.x[1])
     print(data.x[2])
