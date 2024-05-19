@@ -1,28 +1,30 @@
 
-import argparse
 
-import pickle
-import pandas as pd
-import sklearn
-import numpy as np
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+#import gensim 
+import torch
+import argparse
+from torchtext.vocab import GloVe
+import torch.nn
+
+#import pickle
+#import sklearn
+#from sklearn.pipeline import Pipeline
+#from sklearn.preprocessing import StandardScaler
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.feature_extraction.text import CountVectorizer
+#from sklearn.feature_extraction.text import CountVectorizer
 
 from sklearn.model_selection import GridSearchCV
-from sklearn.preprocessing import OrdinalEncoder
+#from sklearn.preprocessing import OrdinalEncoder
 from sklearn.metrics import make_scorer
 from sklearn.metrics import accuracy_score
 
-import torch
 from torchtext.data.utils import get_tokenizer
-import gensim 
 
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.neural_network import MLPClassifier
-from  sklearn.svm import SVC
+
+#from sklearn.neighbors import KNeighborsClassifier
+#from sklearn.ensemble import RandomForestClassifier
+#from sklearn.neural_network import MLPClassifier
+#from  sklearn.svm import SVC
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
 
@@ -33,7 +35,7 @@ import numpy as np
 import pandas as pd 
 import json
 import matplotlib.pyplot as plt
-import copy
+#import copy
 from model import Model
 
 
@@ -41,9 +43,9 @@ from model import Model
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_path", default="data/train.jsonl", type=str, help="data path")
 parser.add_argument("--model_path", default="models/model.model", type=str, help="Model path")
-parser.add_argument("--embedder_path", default="embedders/GoogleNews-vectors-negative300.bin.gz", type=str, help="Model path")
+parser.add_argument("--embedder_path", default="embedders/glove.6B.50d.txt", type=str, help="Model path")
 
-DEFAULT_EMBEDDER = 'word2vec-google-news-300'
+
 
 class Dataset:
 
@@ -98,9 +100,13 @@ class Dataset:
         
     def _column_to_embeddings(self, model, tokens, max_tokens):
         embedding_dim = model.vector_size
+        
         embeddings = np.zeros((max_tokens,max_tokens, embedding_dim))
+       
         for i, sample in enumerate(tokens):
+            print(model.get_vecs_by_tokens(sample))
             for i_token, token in enumerate(sample):
+
                 if token in model.vocab:
                     embeddings[i,i_token,:] = model[token]
                 else:
@@ -109,12 +115,13 @@ class Dataset:
         return embeddings
 
 
-    def prepare_embeddings(self,columns, max_words, model_path):
-        if os.path.exists(model_path):
-            model  = gensim.models.KeyedVectors.load_word2vec_format(model_path, binary=True)
-        else:
-            model  = gensim.downloader.load(DEFAULT_EMBEDDER)
-        
+    def prepare_embeddings(self,columns, max_words, embedder_path):
+        model = GloVe()
+        #if os.path.exists(embedder_path):
+        #    model  = gensim.models.KeyedVectors.load_word2vec_format(embedder_path, binary=True)
+        #else:
+        #    model  = gensim.downloader.load(DEFAULT_EMBEDDER)
+        #
         input_data = []
         for column, max_words in zip(columns, max_words):
             tokens = self._tokenize(self, column, max_words)
@@ -151,6 +158,11 @@ def train_tf_idf(args):
 
 if __name__ == '__main__':
     args = parser.parse_args([] if "__file__" not in globals() else None)
+    data = Dataset(args.data_path)
+    data.prepare_embeddings(('headline','short_description'), (44, 50), args.embedder_path)
+    print(data.x[0])
+    print(data.x[1])
+    print(data.x[2])
     pass
     
     
