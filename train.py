@@ -15,7 +15,9 @@ from sklearn.preprocessing import OrdinalEncoder
 from sklearn.metrics import make_scorer
 from sklearn.metrics import accuracy_score
 
-
+import torch
+from torchtext.data.utils import get_tokenizer
+import gensim 
 
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
@@ -25,6 +27,8 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
 
 
+
+import os
 import numpy as np
 import pandas as pd 
 import json
@@ -37,6 +41,9 @@ from model import Model
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_path", default="data/train.jsonl", type=str, help="data path")
 parser.add_argument("--model_path", default="models/model.model", type=str, help="Model path")
+parser.add_argument("--embedder_path", default="embedders/GoogleNews-vectors-negative300.bin.gz", type=str, help="Model path")
+
+DEFAULT_EMBEDDER = 'word2vec-google-news-300'
 
 class Dataset:
 
@@ -81,21 +88,39 @@ class Dataset:
     def prepare_data(self, vectorizer):
         data = self.get_data_for_vectorizer()
         x = vectorizer.transform(data).toarray()
-
-        #add week day 
-        self.data['date'] = pd.to_datetime(self.data['date'])
-        self.data['weekday'] = self.data['date'].dt.dayofweek.astype(int)
-        self.data['weekday'] = self.data['weekday'].astype(int)
-        one_hot_encoder = OrdinalEncoder()
-        weekday = one_hot_encoder.fit_transform(np.array(self.data['weekday']).reshape(-1, 1))
-        #train_x = np.hstack((train_x, weekday)) #doesn't helped
         self.x = x
     
-    def transform_data(self, vectorizer):
-        print("words transform")
         
+    def _tokenize(self, column, max_words):
+        tokenizer = get_tokenizer('basic_english')
+        tokens = self.data[column].apply(lambda x: tokenizer(x)[:max_words])
+        return tokens
         
+    def _column_to_embeddings(self, model, tokens, max_tokens):
+        embedding_dim = model.vector_size
+        embeddings = np.zeros((max_tokens,max_tokens, embedding_dim))
+        for i, sample in enumerate(tokens):
+            for i_token, token in enumerate(sample):
+                if token in model.vocab:
+                    embeddings[i,i_token,:] = model[token]
+                else:
+                    embeddings[i,i_token,:] = np.zeros(embedding_dim)
+                    print(f"for token: {token}, embeddings was not found")
+        return embeddings
+
+
+    def prepare_embeddings(self,columns, max_words, model_path):
+        if os.path.exists(model_path):
+            model  = gensim.models.KeyedVectors.load_word2vec_format(model_path, binary=True)
+        else:
+            model  = gensim.downloader.load(DEFAULT_EMBEDDER)
         
+        input_data = []
+        for column, max_words in zip(columns, max_words):
+            tokens = self._tokenize(self, column, max_words)
+            embeddings = self._column_to_embeddings(model, tokens)
+            input_data.append(embeddings)
+        self.x = torch.cat(input_data, dim=1)
 
 
 def test_model(model, train_x, train_y, name, grid = {}):
@@ -106,9 +131,8 @@ def test_model(model, train_x, train_y, name, grid = {}):
     print('-'*50,'\n')
     return grid_cv.best_estimator_
 
-
-if __name__ == '__main__':
-    args = parser.parse_args([] if "__file__" not in globals() else None)
+def train_tf_idf(args):
+    
     data = Dataset(args.data_path)
     print("words fit")
     vectorizer = TfidfVectorizer( analyzer='word',lowercase=True ,ngram_range=(1,1),max_features=1000).fit(data.get_data_for_vectorizer())
@@ -124,6 +148,10 @@ if __name__ == '__main__':
     #train_x, vectorizer = prepareData(data,vectorizer = CountVectorizer(analyzer='char',lowercase=True, ngram_range=(1,4),max_features = 1000))
     #test_model(GaussianNB(), train_x, train_y, name='Gausian')
     #test_model(LogisticRegression(), train_x, train_y, name='Logistic Regression')
+
+if __name__ == '__main__':
+    args = parser.parse_args([] if "__file__" not in globals() else None)
+    pass
     
     
 
