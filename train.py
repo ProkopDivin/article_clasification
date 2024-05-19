@@ -77,7 +77,7 @@ class TfIdfDataset(BaseDataset):
         self.data = self._load_data(file_path)
          
         if 'category' in self.data:
-            self.y = [Dataset.classes.index(x) for x in self.data['category']]
+            self.y = [BaseDataset.classes.index(x) for x in self.data['category']]
         else:
             self.y = None
         
@@ -100,11 +100,9 @@ class TorchDataset(BaseDataset,Dataset):
     def __init__(self, file_path ):
         super().__init__()
         self.data = self._load_data(file_path)
-
         
-              
         if 'category' in self.data:
-            self.y = [Dataset.classes.index(x) for x in self.data['category']]
+            self.y = [BaseDataset.classes.index(x) for x in self.data['category']]
         else:
             self.y = None
         
@@ -114,8 +112,17 @@ class TorchDataset(BaseDataset,Dataset):
         self.vocab = None
         self.embeddings = None
         self.x_length = 0
-    
-    
+        self.tokenizer = get_tokenizer("basic_english")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    def __len__(self):
+        return len(self.x)
+
+    def __getitem__(self, idx):
+        label, x = self.y[idx], self.x[idx]   
+        txt_rep = x
+        label, txt_rep = torch.tensor(label, dtype=torch.float32), torch.tensor(txt_rep, dtype=torch.long)
+        return label.to(self.device), txt_rep.to(self.device)
+      
     # Function to load GloVe embeddings
     def _load_embeddings(self, file_path):
         embeddings_dict = {}
@@ -128,9 +135,8 @@ class TorchDataset(BaseDataset,Dataset):
         return embeddings_dict
 
     def _create_tokens(self, data):
-        tokenizer = get_tokenizer("basic_english")
         for text in data:
-            yield tokenizer(text.lower())
+            yield self.tokenizer(text.lower())
     
     def _build_vocab(self, text):
         
@@ -161,10 +167,12 @@ class TorchDataset(BaseDataset,Dataset):
         self._build_vocab(pd.concat(vocab_data, axis=0).reset_index(drop=True))
         trained_emb = self._load_embeddings(emb_path)
         self._build_emb_matrix(trained_emb, emb_dim)
-        indexed_columns = []
-        for name,max_tokens in zip(columns,max_words):
-           tokenizer = get_tokenizer('basic_english')
-           indexed_data = torch.tensor([self._text_to_indexes(text, self.vocab, tokenizer, max_tokens) for text in self.data[name]])  
+        # want frst token of feature begin on the same index if using multiple text features in dataset 
+        indexed_columns = [] 
+        for name, max_tokens in zip(columns,max_words):
+           indexed_data = torch.zeros([len(self.data[name]), max_tokens],dtype=torch.long)
+           for idx, text in enumerate(self.data[name]):
+               indexed_data[idx] = self._text_to_indexes(text, self.vocab, self.tokenizer, max_tokens) 
            indexed_columns.append(indexed_data)
         self.x = torch.cat(indexed_columns, dim=1)
         self.x_length = sum(max_words)
@@ -198,7 +206,7 @@ def train_tf_idf(args):
 
 if __name__ == '__main__':
     args = parser.parse_args([] if "__file__" not in globals() else None)
-    data = Dataset(args.data_path)
+    data = TorchDataset(args.data_path)
     data.prepare_embeddings( args.embedder_path, args.emb_dimension, columns=('headline','short_description'), max_words=(44, 50))
     print(data.x[0])
     print(data.x[1])
