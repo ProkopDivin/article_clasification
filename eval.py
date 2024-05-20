@@ -8,15 +8,15 @@ from torch.utils.data import DataLoader
 from train import BaseDataset
 from NN_model import EmbModel
 import sklearn.metrics
-
+import GLOBAL_PARAMETERS
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_path", default="data/dev.jsonl", type=str, help=" Data path")
-parser.add_argument("--model_path", default="models/model.model", type=str, help="Model path")
-parser.add_argument("--emb_dimension", default= 50 , type=int, help="length of one embedding: 50 , 100, 200, 300")
-parser.add_argument("--use_columns", default= ['headline','short_description'] , type=list, help="possible values: ['headline','short_description']")
-parser.add_argument("--max_tokens", default= [44, 60] , type=list, help=" [44, 60] ... none of the headlines will be truncated, 0.85 % of short description will be trucated a litle bit ")
+parser.add_argument("--model_path", default=GLOBAL_PARAMETERS.MODEL_PATH, type=str, help="Model path")
+parser.add_argument("--emb_dimension", default=GLOBAL_PARAMETERS.EMB_DIMENSION, type=int, help="length of one embedding: 50 , 100, 200, 300")
+parser.add_argument("--use_columns", default= GLOBAL_PARAMETERS.USE_COLUMNS , type=list, help="possible values: ['headline','short_description']")
+parser.add_argument("--max_tokens", default= GLOBAL_PARAMETERS.MAX_TOKENS, type=list, help=" [44, 60] ... none of the headlines will be truncated, 0.85 % of short description will be trucated a litle bit ")
 
 class Evaluator:
 
@@ -86,9 +86,6 @@ class Evaluator:
         print("-" * 50)
         print(f"accuracy: {sklearn.metrics.accuracy_score(true_y, pred_y)} \n")
         
-   
-
-
         
 if __name__ == '__main__':
     args = parser.parse_args([] if "__file__" not in globals() else None)

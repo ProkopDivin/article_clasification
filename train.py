@@ -8,6 +8,7 @@ import pickle
 
 from model import Model
 from NN_model import EmbModel
+import GLOBAL_PARAMETERS
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import GaussianNB
@@ -26,11 +27,11 @@ from torchtext.vocab import build_vocab_from_iterator
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_path", default="data/train.jsonl", type=str, help="data path")
-parser.add_argument("--model_path", default="models/model.model", type=str, help="Model path")
+parser.add_argument("--model_path", default=GLOBAL_PARAMETERS.MODEL_PATH, type=str, help="Model path")
 parser.add_argument("--embedder_path", default="embedders/glove.6B.50d.txt", type=str, help="embedders/glove.6B.DIMd.txt where: DIM in [50 , 100, 200, 300], and DIM == --emb_dimension \n download embedding at: https://huggingface.co/stanfordnlp/glove/resolve/main/glove.6B.zip ")
-parser.add_argument("--emb_dimension", default= 50 , type=int, help="length of one embedding: 50 , 100, 200, 300")
-parser.add_argument("--use_columns", default= ['headline','short_description'] , type=list, help="possible values: ['headline','short_description']")
-parser.add_argument("--max_tokens", default= [44, 60] , type=list, help=" [44, 60] ... none of the headlines will be truncated, 0.85 % of short description will be trucated a litle bit ")
+parser.add_argument("--emb_dimension", default=GLOBAL_PARAMETERS.EMB_DIMENSION, type=int, help="length of one embedding: 50 , 100, 200, 300")
+parser.add_argument("--use_columns", default= GLOBAL_PARAMETERS.USE_COLUMNS , type=list, help="possible values: ['headline','short_description']")
+parser.add_argument("--max_tokens", default= GLOBAL_PARAMETERS.MAX_TOKENS, type=list, help=" [44, 60] ... none of the headlines will be truncated, 0.85 % of short description will be trucated a litle bit ")
 
 class BaseDataset:
     classes = ['POLITICS', 'WELLNESS', 'ENTERTAINMENT', 'TRAVEL', 'STYLE & BEAUTY',
