@@ -27,7 +27,7 @@ from torchtext.vocab import build_vocab_from_iterator
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_path", default="data/train.jsonl", type=str, help="data path")
 parser.add_argument("--model_path", default="models/model.model", type=str, help="Model path")
-parser.add_argument("--embedder_path", default="embedders/glove.6B.50d.txt", type=str, help="embedders/glove.6B.DIMd.txt where: DIM in [50 , 100, 200, 300], and DIM == --emb_dimension \n download embedding at ")
+parser.add_argument("--embedder_path", default="embedders/glove.6B.50d.txt", type=str, help="embedders/glove.6B.DIMd.txt where: DIM in [50 , 100, 200, 300], and DIM == --emb_dimension \n download embedding at: https://huggingface.co/stanfordnlp/glove/resolve/main/glove.6B.zip ")
 parser.add_argument("--emb_dimension", default= 50 , type=int, help="length of one embedding: 50 , 100, 200, 300")
 parser.add_argument("--use_columns", default= ['headline','short_description'] , type=list, help="possible values: ['headline','short_description']")
 parser.add_argument("--max_tokens", default= [44, 60] , type=list, help=" [44, 60] ... none of the headlines will be truncated, 0.85 % of short description will be trucated a litle bit ")
@@ -122,7 +122,7 @@ class TorchDataset(BaseDataset,Dataset):
         if 'category' in self.data:
             self.y = [one_hot_labels[BaseDataset.classes.index(x)] for x in self.data['category']]
         else:
-            self.y = None
+            self.y = [None for x in self.data['category']]
         
         self.tokenizer = get_tokenizer("basic_english")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -190,8 +190,11 @@ class TorchDataset(BaseDataset,Dataset):
             self._build_vocab(pd.concat(vocab_data, axis=0).reset_index(drop=True))
         else:
             self.vocab = vocab
-        trained_emb = self._load_embeddings(emb_path)
-        self._build_emb_matrix(trained_emb, emb_dim)
+        
+        if not emb_path is None:
+            trained_emb = self._load_embeddings(emb_path)
+            self._build_emb_matrix(trained_emb, emb_dim)
+        
         # want frst token of feature begin on the same index if using multiple text features in dataset 
         indexed_columns = [] 
         for name, max_tokens in zip(columns,max_words):
@@ -224,7 +227,7 @@ def train_NN_with_embeddings(args):
     hidden_layers = ()
     dropout_rate = 0.50
     lr = 1e-3
-    epochs = 100
+    epochs = 150
     weight_decay = 0.000
     
     model = EmbModel(vocab_size = vocab_size,
