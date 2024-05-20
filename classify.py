@@ -1,6 +1,6 @@
 
 from eval import Evaluator
-from train import Dataset
+from train import BaseDataset
 import GLOBAL_PARAMETERS
 import copy
 import argparse 
@@ -20,22 +20,21 @@ class Classifier:
         json_data = dataframe.to_json(orient='records', lines=True)
         with open(result_path, 'w') as f:
             f.write(json_data)
+        print(f"results save to: {result_path}")
 
-    def classify(data_path, model_path, result_path):      
-        data = Dataset(data_path)
-        original_data =copy.deepcopy(data.data)
-        evaluator = Evaluator(model_path)
-        x, _ = evaluator.prepare_data(data)
-        pred_y = evaluator.predict(x)      
-        labels = [[Dataset.classes[i]] for i in pred_y]
-        original_data['category'] = labels
-        Classifier.save_results(result_path, original_data)
+    def classify(args):      
+        evaluator = Evaluator(args)
+        pred_y,_ = evaluator.predict()
+        data = BaseDataset._load_data(BaseDataset(), args.data_path)
+        labels = [[BaseDataset.classes[i]] for i in pred_y]
+        data['category'] = labels
+        Classifier.save_results(args.result_path, data)
 
 
 
 
 if __name__ == '__main__':
     args = parser.parse_args([] if "__file__" not in globals() else None)
-    Classifier.classify(args.data_path, args.model_path, args.result_path)
+    Classifier.classify(args)
 
     

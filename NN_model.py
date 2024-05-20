@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
+
 class EmbModel(nn.Module):
     
     def __init__(self, vocab_size, emb_dim, tokens_insample, hidden_layers, output_dim, pretrained_emb, dropout_rate, device, learn_emb=False):
