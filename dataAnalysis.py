@@ -1,8 +1,6 @@
 
-import numpy as np
 import pandas as pd 
 import json
-import matplotlib.pyplot as plt
 import copy
 
 
@@ -39,3 +37,6 @@ if __name__ == '__main__':
     pd.set_option('display.width', None)
     print(data.describe(include='all') )
     print(data.head(1))
+    for treshold in [i for i in range(20,250,10)]:
+       short_count = (data['short_description'].str.split().apply(len) < treshold).sum()
+       print(f"with treshold: {treshold} there is  {short_count/len(data) * 100} % with less words")

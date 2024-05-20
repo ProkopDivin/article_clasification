@@ -1,49 +1,36 @@
 
 import time
-import torch
+import numpy as np
+import pandas as pd 
+import json
 import argparse
-import torch.nn
-import torch.nn.functional as F
+import pickle
+
+from model import Model
+from NN_model import EmbModel
 
 from sklearn.feature_extraction.text import TfidfVectorizer
-
-
+from sklearn.naive_bayes import GaussianNB
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import make_scorer
 from sklearn.metrics import accuracy_score
 
-from torchtext.data.utils import get_tokenizer
-
-from sklearn.naive_bayes import GaussianNB
-from sklearn.linear_model import LogisticRegression
-
-
-
-import os
-import numpy as np
-import pandas as pd 
-import json
-import matplotlib.pyplot as plt
-#import copy
-from model import Model
-from torch.utils.data import DataLoader, Dataset
-
 import torch
-import torch.nn as nn
-import numpy as np
-from torchtext.vocab import build_vocab_from_iterator
+import torch.nn
+import torch.nn.functional as F
 from torchtext.data.utils import get_tokenizer
+from torch.utils.data import DataLoader, Dataset
+from torchtext.vocab import build_vocab_from_iterator
 
-from NN_model import EmbModel
-import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_path", default="data/train.jsonl", type=str, help="data path")
 parser.add_argument("--model_path", default="models/model.model", type=str, help="Model path")
-parser.add_argument("--embedder_path", default="embedders/glove.6B.100d.txt", type=str, help="embedders/glove.6B.DIMd.txt where: DIM in [50 , 100, 200, 300], and DIM == --emb_dimension")
-parser.add_argument("--emb_dimension", default= 100 , type=int, help="dimensions 50 , 100, 200, 300")
-parser.add_argument("--use_columns", default= ['headline','short_description'] , type=list, help="Model path")
-parser.add_argument("--max_tokens", default= [44, 60] , type=list, help="Model path")
+parser.add_argument("--embedder_path", default="embedders/glove.6B.50d.txt", type=str, help="embedders/glove.6B.DIMd.txt where: DIM in [50 , 100, 200, 300], and DIM == --emb_dimension \n download embedding at ")
+parser.add_argument("--emb_dimension", default= 50 , type=int, help="length of one embedding: 50 , 100, 200, 300")
+parser.add_argument("--use_columns", default= ['headline','short_description'] , type=list, help="possible values: ['headline','short_description']")
+parser.add_argument("--max_tokens", default= [44, 60] , type=list, help=" [44, 60] ... none of the headlines will be truncated, 0.85 % of short description will be trucated a litle bit ")
 
 class BaseDataset:
     classes = ['POLITICS', 'WELLNESS', 'ENTERTAINMENT', 'TRAVEL', 'STYLE & BEAUTY',
@@ -63,6 +50,11 @@ class BaseDataset:
         data = pd.DataFrame(data)
         return data
     
+
+###################-------------------------------------------------------------#######################
+####                     traing models, using tf_idf or Count_vectorizer                          #####
+###################-------------------------------------------------------------#######################
+
 class TfIdfDataset(BaseDataset):
     
     
@@ -85,8 +77,39 @@ class TfIdfDataset(BaseDataset):
         data = self.get_data_for_vectorizer()
         x = vectorizer.transform(data).toarray()
         self.x = x
-    
 
+
+def test_model(model, train_x, train_y, name, grid = {}):
+    print(f"testing: {name}")   
+    grid_cv = GridSearchCV(model, grid, error_score='raise', scoring=make_scorer(accuracy_score))
+    grid_cv.fit(train_x,train_y)
+    print(f"accuracy: {grid_cv.best_score_}")
+    print('-'*50,'\n')
+    return grid_cv.best_estimator_
+
+def train_tf_idf(args):
+    
+    data = Dataset(args.data_path)
+    print("words fit")
+    vectorizer = TfidfVectorizer( analyzer='word',lowercase=True ,ngram_range=(1,1),max_features=1000).fit(data.get_data_for_vectorizer())
+    data.prepare_data(vectorizer)
+
+    print('accuracy when all is POLITICS: ', accuracy_score([Dataset.classes.index('POLITICS')] * len(data.y), data.y))
+    print('\n')
+    print(data.x[:10])
+    test_model(GaussianNB(), data.x, data.y, name='Gausian')
+    ## best model without embeddings
+    best_estimator =test_model(LogisticRegression(), data.x, data.y, name='Logistic Regression')
+    
+    Model.save((best_estimator,vectorizer),args.model_path)
+
+###################-------------------------------------------------------------#######################
+####                     traing Pytorch model with pretrained embeddings                          #####
+###################-------------------------------------------------------------#######################
+
+# dataset for PyTorch model 
+# loading pretrained embedding 
+# creating vocabulary  
 class TorchDataset(BaseDataset,Dataset):
 
     
@@ -105,7 +128,7 @@ class TorchDataset(BaseDataset,Dataset):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # prepare embeddings must be called 
-        # have to call Prepare data
+        # have to call prepare_embeddings
         self.x = None
         # vocabulary for embeddings
         self.vocab = None
@@ -122,7 +145,7 @@ class TorchDataset(BaseDataset,Dataset):
         label, txt_rep = torch.tensor(label, dtype=torch.float32), torch.tensor(txt_rep, dtype=torch.long)
         return label.to(self.device), txt_rep.to(self.device)
       
-    # Function to load GloVe embeddings
+    # Function to load embeddings from downloaded text file
     def _load_embeddings(self, file_path):
         embeddings_dict = {}
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -143,6 +166,7 @@ class TorchDataset(BaseDataset,Dataset):
         vocab.set_default_index(vocab["<oov>"])
         self.vocab = vocab
     
+    # this mettrix wil be used for Embeddings layer
     def _build_emb_matrix(self, trained_emb, emb_dim):
         embedding_matrix = np.random.normal(scale=0.6, size=(len(self.vocab), emb_dim))
         mean_embedding = np.mean(np.array(list(trained_emb.values())), axis=0)
@@ -180,34 +204,8 @@ class TorchDataset(BaseDataset,Dataset):
         self.tokens = sum(max_words)
 
 
-def test_model(model, train_x, train_y, name, grid = {}):
-    print(f"testing: {name}")   
-    grid_cv = GridSearchCV(model, grid, error_score='raise', scoring=make_scorer(accuracy_score))
-    grid_cv.fit(train_x,train_y)
-    print(f"accuracy: {grid_cv.best_score_}")
-    print('-'*50,'\n')
-    return grid_cv.best_estimator_
 
-def train_tf_idf(args):
-    
-    data = Dataset(args.data_path)
-    print("words fit")
-    vectorizer = TfidfVectorizer( analyzer='word',lowercase=True ,ngram_range=(1,1),max_features=1000).fit(data.get_data_for_vectorizer())
-    data.prepare_data(vectorizer)
-
-    print('accuracy when all is POLITICS: ', accuracy_score([Dataset.classes.index('POLITICS')] * len(data.y), data.y))
-    print('\n')
-    print(data.x[:10])
-    test_model(GaussianNB(), data.x, data.y, name='Gausian')
-    best_estimator =test_model(LogisticRegression(), data.x, data.y, name='Logistic Regression')
-    
-    Model.save((best_estimator,vectorizer),args.model_path)
-    #train_x, vectorizer = prepareData(data,vectorizer = CountVectorizer(analyzer='char',lowercase=True, ngram_range=(1,4),max_features = 1000))
-    #test_model(GaussianNB(), train_x, train_y, name='Gausian')
-    #test_model(LogisticRegression(), train_x, train_y, name='Logistic Regression')
-
-if __name__ == '__main__':
-    args = parser.parse_args([] if "__file__" not in globals() else None)
+def train_NN_with_embeddings(args):
     train_dataset = TorchDataset(args.data_path)
     train_dataset.prepare_embeddings( args.embedder_path, args.emb_dimension, columns=args.use_columns, max_words=args.max_tokens)
     val_dataset = TorchDataset(args.data_path)
@@ -219,30 +217,29 @@ if __name__ == '__main__':
     dataloader_training = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     dataloader_validation = DataLoader(val_dataset, batch_size=batch_size)
 
-
+    ## hyper parameters 
     vocab_size  = len(train_dataset.vocab)
     emb_dim = train_dataset.emb_dim
     tokens_insample = train_dataset.tokens
-    hidden_layers = (100,64,64)
-    num_layers = 1
-    RNN_type = 'Simple RNN' #possible choices -> ['Simple RNN', 'LSTM', 'GRU']
-    bidirectional = False
+    hidden_layers = ()
+    dropout_rate = 0.50
     lr = 1e-3
-    epochs = 35
+    epochs = 100
+    weight_decay = 0.000
     
     model = EmbModel(vocab_size = vocab_size,
                       emb_dim = emb_dim, 
                       tokens_insample = tokens_insample,
                       hidden_layers = hidden_layers,
                       pretrained_emb = train_dataset.embeddings,
-                      learn_emb = False,
-                      dropout_rate = 0.35,
+                      learn_emb = True,
+                      dropout_rate = dropout_rate,
                       device = train_dataset.device,
                       output_dim=len(BaseDataset.classes)).to(train_dataset.device)
     
 
-    criterion = torch.nn.BCELoss()  # does not apply sigmoid
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)  
+    criterion = torch.nn.BCELoss()  
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr , weight_decay=weight_decay)  
 
     start = time.time()
     loss_train, accuracy_train, loss_val, accuracy_val = EmbModel.train_and_val(model,
@@ -254,7 +251,19 @@ if __name__ == '__main__':
     end = time.time()
     print(f"Training time in second: {(end - start)}")
     
+    with open(args.model_path + "vocab.pkl", 'wb') as f:
+        pickle.dump(train_dataset.vocab, f)
+    torch.save(model.state_dict(), args.model_path)
+
+    print(f"model saved in: {args.model_path}")
     EmbModel.plot_learning_acc_and_loss(loss_train, accuracy_train, loss_val, accuracy_val,epochs)
+    pass
+
+
+if __name__ == '__main__':
+    args = parser.parse_args([] if "__file__" not in globals() else None)
+    train_NN_with_embeddings(args)
+    
 
     
     

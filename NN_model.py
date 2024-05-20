@@ -4,8 +4,6 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-from  sklearn.metrics import accuracy_score
-
 
 class EmbModel(nn.Module):
     
@@ -44,6 +42,7 @@ class EmbModel(nn.Module):
         x = F.softmax(self.output(x), dim=1)
         return x
     
+    # for messuring accuracy 
     def _logits_to_onehot(logits):
         one_hot = lambda x: torch.tensor([1 if i == torch.argmax(x) else 0 for i in range(len(x))])
         one_hot_tensor = torch.stack([one_hot(row) for row in logits])
@@ -55,8 +54,7 @@ class EmbModel(nn.Module):
             if torch.argmax(yt) == torch.argmax(yp): count += 1
         return count
 
-
-
+    # training with accuracy on the validation set 
     def train_and_val(model, optimizer, dataloader_training, dataloader_validation, epochs, criterion):
         loss_train, loss_val = [], []
         acc_train, acc_val = [], []
@@ -64,7 +62,8 @@ class EmbModel(nn.Module):
         for epoch in range(epochs):
             model.train()
             total_acc_train, total_count_train, n_train_batches, total_loss_train = 0, 0, 0, 0
-           
+            
+            # training 
             for idx, (label, text) in enumerate(dataloader_training):
                 optimizer.zero_grad()
                 logits = model(text)
@@ -73,10 +72,6 @@ class EmbModel(nn.Module):
                 loss.backward()
                 optimizer.step()
                 
-          
-                #labels_form_logits = lambda x: torch.argmax(x)
-                #logits = torch.tensor(list(map(labels_form_logits, logits))).to(model.device)
-                #total_acc_train += (logits == label).sum().item()
                 total_acc_train += EmbModel._count_correct(label,EmbModel._logits_to_onehot(logits))
                 total_count_train += label.size(0)
                 n_train_batches += 1
@@ -85,7 +80,8 @@ class EmbModel(nn.Module):
             loss_train.append(avg_loss_train.item())
             accuracy_train = total_acc_train/total_count_train
             acc_train.append(accuracy_train)
-        
+            
+            # validation
             total_acc_val, total_count_val, n_val_batches, total_loss_val = 0, 0, 0, 0
             with torch.no_grad():
                 model.eval()
@@ -94,8 +90,6 @@ class EmbModel(nn.Module):
                     loss = criterion(logits, label)
                     total_loss_val += loss
                     
-                    #logits = torch.tensor(list(map(labels_form_logits, logits))).to(model.device)
-                    #total_acc_val += (logits == label).sum().item()
                     total_acc_val += EmbModel._count_correct(label,EmbModel._logits_to_onehot(logits))
                     total_count_val += label.size(0)
                     n_val_batches += 1
@@ -103,6 +97,7 @@ class EmbModel(nn.Module):
             loss_val.append(avg_loss_val.item())
             accuracy_val = total_acc_val/total_count_val
             acc_val.append(accuracy_val)
+
             if epoch % 1 == 0:
                 print(f"epoch: {epoch+1} -> Accuracy: {100*accuracy_train:.2f}%, Loss: {avg_loss_train:.8f}",end=" ---------------- ")
                 print(f"Val_Acc: {100*accuracy_val:.2f}%, Val_Loss: {avg_loss_val:.8f}")
