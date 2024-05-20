@@ -80,7 +80,7 @@ class Evaluator:
         pred_y, true_y= self.predict()
         self.print_con_matrix(true_y, pred_y)
         print("-" * 50)
-        print(f"accuracy: {sklearn.metrics.accuracy_score(true_y, pred_y)} \n")
+        print(f"accuracy: {sklearn.metrics.accuracy_score(true_y, pred_y)*100}% \n")
         
         
 if __name__ == '__main__':
