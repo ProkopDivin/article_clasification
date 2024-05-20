@@ -6,14 +6,13 @@ import json
 import argparse
 import pickle
 
-from model import Model
 from NN_model import EmbModel
 import GLOBAL_PARAMETERS
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import GaussianNB
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import GridSearchCV
+#from sklearn.feature_extraction.text import TfidfVectorizer
+#from sklearn.naive_bayes import GaussianNB
+#from sklearn.linear_model import LogisticRegression
+#from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import make_scorer
 from sklearn.metrics import accuracy_score
 
@@ -50,59 +49,6 @@ class BaseDataset:
                 data.append(json.loads(line))
         data = pd.DataFrame(data)
         return data
-    
-
-###################-------------------------------------------------------------#######################
-####                     traing models, using tf_idf or Count_vectorizer                          #####
-###################-------------------------------------------------------------#######################
-
-class TfIdfDataset(BaseDataset):
-    
-    
-    def __init__(self, file_path ):
-        self.data = self._load_data(file_path)
-         
-        if 'category' in self.data:
-            self.y = [BaseDataset.classes.index(x) for x in self.data['category']]
-        else:
-            self.y = None
-        
-        # have to call Prepare data
-        self.x = None
-    
-    def get_data_for_vectorizer(self):
-        x =  self.data['headline'] + ' ' + self.data['short_description']
-        return x
-
-    def prepare_data(self, vectorizer):
-        data = self.get_data_for_vectorizer()
-        x = vectorizer.transform(data).toarray()
-        self.x = x
-
-
-def test_model(model, train_x, train_y, name, grid = {}):
-    print(f"testing: {name}")   
-    grid_cv = GridSearchCV(model, grid, error_score='raise', scoring=make_scorer(accuracy_score))
-    grid_cv.fit(train_x,train_y)
-    print(f"accuracy: {grid_cv.best_score_}")
-    print('-'*50,'\n')
-    return grid_cv.best_estimator_
-
-def train_tf_idf(args):
-    
-    data = Dataset(args.data_path)
-    print("words fit")
-    vectorizer = TfidfVectorizer( analyzer='word',lowercase=True ,ngram_range=(1,1),max_features=1000).fit(data.get_data_for_vectorizer())
-    data.prepare_data(vectorizer)
-
-    print('accuracy when all is POLITICS: ', accuracy_score([Dataset.classes.index('POLITICS')] * len(data.y), data.y))
-    print('\n')
-    print(data.x[:10])
-    test_model(GaussianNB(), data.x, data.y, name='Gausian')
-    ## best model without embeddings
-    best_estimator =test_model(LogisticRegression(), data.x, data.y, name='Logistic Regression')
-    
-    Model.save((best_estimator,vectorizer),args.model_path)
 
 ###################-------------------------------------------------------------#######################
 ####                     traing Pytorch model with pretrained embeddings                          #####

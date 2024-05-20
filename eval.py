@@ -28,10 +28,6 @@ class Evaluator:
         data = TorchDataset(args.data_path)
         data.prepare_embeddings(None, args.emb_dimension, args.use_columns, args.max_tokens, vocab=self.vocab)
 
-        data1 = TorchDataset(args.data_path)
-        data1.prepare_embeddings("embedders/glove.6B.50d.txt", args.emb_dimension, args.use_columns, args.max_tokens, vocab=self.vocab)
-    
-
         vocab_size  = len(data.vocab)
         emb_dim = data.emb_dim
         tokens_insample = data.tokens
