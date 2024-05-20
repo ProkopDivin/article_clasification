@@ -1,15 +1,15 @@
 
 import argparse
 import pickle
+import pandas as pd 
 import torch 
 from train import TorchDataset
 from torch.utils.data import DataLoader
 from train import BaseDataset
 from NN_model import EmbModel
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import confusion_matrix
-from sklearn.metrics import precision_score
-from sklearn.metrics import recall_score
+import sklearn.metrics
+
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_path", default="data/dev.jsonl", type=str, help=" Data path")
@@ -27,6 +27,11 @@ class Evaluator:
         
         data = TorchDataset(args.data_path)
         data.prepare_embeddings(None, args.emb_dimension, args.use_columns, args.max_tokens, vocab=self.vocab)
+
+        data1 = TorchDataset(args.data_path)
+        data1.prepare_embeddings("embedders/glove.6B.50d.txt", args.emb_dimension, args.use_columns, args.max_tokens, vocab=self.vocab)
+    
+
         vocab_size  = len(data.vocab)
         emb_dim = data.emb_dim
         tokens_insample = data.tokens
@@ -43,38 +48,45 @@ class Evaluator:
                           device = data.device,
                           output_dim=len(BaseDataset.classes)).to(data.device)
         self.model.load_state_dict(torch.load(args.model_path))
-        self.model.eval()
+        
         
         self.dataloader = DataLoader(data, batch_size=len(data.data), shuffle=True)
-
+        
 
     def predict(self):
-        with torch.no_grad():  
+        with torch.no_grad():
+            self.model.eval()  
             data_iter = iter(self.dataloader)
-            batch_data, batch_labels = next(data_iter)
+            batch_labels,batch_data,= next(data_iter)
             output = self.model(batch_data)
             prediction = EmbModel._logits_to_onehot(output)
-
         
+        prediction = torch.argmax(prediction, dim=-1)
+        batch_labels = torch.argmax(batch_labels, dim=-1)
         return (prediction,batch_labels)
+    
 
-    def eval(self):
+    def print_con_matrix(self,true_y, pred_y):
+        classes = BaseDataset.classes  
+        con_matrix = sklearn.metrics.multilabel_confusion_matrix(true_y, pred_y, labels = [i for i in range(len(classes))] )
+        for i, matrix in enumerate(con_matrix):
+            print(f"Confusion matrix for class '{classes[i]}':")
+            df = pd.DataFrame(matrix, index=["True Neg", "True Pos"], columns=["Pred Neg", "Pred Pos"])
+            print(df)
+            tn, fp, fn, tp = matrix.ravel()
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            print(f"precision: {precision}")
+            print(f"recall: {recall}")
+            print()
         
+    def eval(self): 
         pred_y, true_y= self.predict()
-        pred_y = torch.argmax(pred_y, dim=-1)
-        true_y = torch.argmax(true_y, dim=-1)
-
-        print(f"accuracy: {accuracy_score(true_y, pred_y)}")
-        print(pred_y)
+        self.print_con_matrix(true_y, pred_y)
+        print("-" * 50)
+        print(f"accuracy: {sklearn.metrics.accuracy_score(true_y, pred_y)} \n")
         
-        #print('cofusion matrix: ')
-        #print(confusion_matrix(test_y, pred_y, Dataset.classes))
-        #print('precision:')
-        #print(precision_score(test_y, pred_y, Dataset.classes))
-        #print('recall:')
-        #print(recall_score(test_y, pred_y, Dataset.classes))
-        #print()
-
+   
 
 
         

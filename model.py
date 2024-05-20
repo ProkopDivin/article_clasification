@@ -12,5 +12,5 @@ class Model:
             model = pickle.load(model_file)
         return model
 
-    def prepare_model():
-        pass
+    
+
